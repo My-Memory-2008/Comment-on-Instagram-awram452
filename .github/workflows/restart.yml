@@ -1,0 +1,57 @@
+
+name: Restart comment
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  trigger-automate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Wait 1 minute before triggering instagram_bot.yml
+        run: |
+          echo "Waiting 60 seconds before triggering instagram_bot.yml..."
+          sleep 60
+
+      - name: Trigger instagram_bot.yml with Retries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Triggering instagram_bot.yml on branch/tag: ${{ github.ref_name }}"
+          
+          MAX_ATTEMPTS=10
+          ATTEMPT=1
+          SUCCESS=false
+          
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo "Attempt $ATTEMPT of $MAX_ATTEMPTS..."
+            
+            if gh workflow run instagram_bot.yml --ref "${{ github.ref_name }}"; then
+              echo "instagram_bot.yml triggered successfully."
+              SUCCESS=true
+              break
+            else
+              echo "Attempt $ATTEMPT failed."
+              if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then
+                echo "Waiting 15 seconds before next retry..."
+                sleep 15
+              fi
+            fi
+            
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+          
+          if [ "$SUCCESS" = false ]; then
+            echo "Error: Failed to trigger instagram_bot.yml after $MAX_ATTEMPTS attempts."
+            exit 1
+          fi
+          
+          echo "restart.yml will now finish and terminate."
