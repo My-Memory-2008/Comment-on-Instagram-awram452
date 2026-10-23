@@ -1,0 +1,56 @@
+name: Auto-Refresh Instagram Access Token
+
+on:
+  # Run automatically every 30 days (well before the 60-day expiration)
+  schedule:
+    - cron: '0 0 1 * *'
+  # Allow you to run it manually at any time from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  refresh-token:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Exchange/Refresh Access Token
+        id: token_exchange
+        run: |
+          echo "🔄 Requesting new long-lived token from Meta..."
+          
+          # Call the Meta API to exchange/refresh the token
+          RESPONSE=$(curl -s -X GET "https://graph.facebook.com/v20.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${{ secrets.META_APP_ID }}&client_secret=${{ secrets.META_APP_SECRET }}&fb_exchange_token=${{ secrets.INSTAGRAM_ACCESS_TOKEN }}")
+          
+          # Check if the response contains an error
+          if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
+            echo "❌ Meta API Error: $(echo "$RESPONSE" | jq -r '.error.message')"
+            echo "⚠️ Your current token might be completely expired. You will need to generate a new short-lived token manually from the Graph API Explorer first."
+            exit 1
+          fi
+          
+          # Extract the new access token
+          NEW_TOKEN=$(echo "$RESPONSE" | jq -r '.access_token')
+          
+          if [ "$NEW_TOKEN" == "null" ] || [ -z "$NEW_TOKEN" ]; then
+            echo "❌ Failed to extract new token."
+            exit 1
+          fi
+          
+          echo "✅ Successfully generated new token!"
+          echo "new_token=$NEW_TOKEN" >> $GITHUB_OUTPUT
+
+      - name: Update GitHub Secret
+        env:
+          GH_TOKEN: ${{ secrets.PAT_FOR_SECRETS }}
+        run: |
+          echo "🔐 Updating GitHub Secret 'INSTAGRAM_ACCESS_TOKEN'..."
+          
+          # Verify that gh CLI is properly authenticated with the PAT
+          echo "🔍 Checking GitHub CLI authentication..."
+          gh auth status
+          
+          # Update the repository secret (gh automatically uses the GH_TOKEN env var)
+          gh secret set INSTAGRAM_ACCESS_TOKEN --body "${{ steps.token_exchange.outputs.new_token }}"
+          
+          echo "✅ Secret updated successfully! Your bot will now use the fresh token."
